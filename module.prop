@@ -1,0 +1,8 @@
+name=Nasgor Kernel Installer
+version=1.0
+minsdk=27
+date=18-04-2020
+device=X00T
+author=wahyu6070 @xda-developers
+description=Kernel Installer script
+block=/dev/block/bootdevice/by-name/boot
