@@ -1,0 +1,145 @@
+#!/sbin/sh
+# Nasgor Kernel Installer 1.0
+# by wahyu6070 (dont change)
+
+OUTFD=/proc/self/fd/$2;
+ZIPFILE="$3";
+
+test -e /data/adb/magisk && adb=adb;
+ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true || BOOTMODE=false;
+$BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
+if $BOOTMODE; then
+  OUTFD=/proc/self/fd/0;
+  dev=/dev;
+  devtmp=/dev/tmp;
+  if [ -e /data/$adb/magisk ]; then
+    if [ ! -f /data/$adb/magisk_merge.img -a ! -e /data/adb/modules ]; then
+      (/system/bin/make_ext4fs -b 4096 -l 64M /data/$adb/magisk_merge.img || /system/bin/mke2fs -b 4096 -t ext4 /data/$adb/magisk_merge.img 64M) >/dev/null;
+    fi;
+  fi;
+fi;
+
+ui_print() { $BOOTMODE && echo "$1" || echo -e "ui_print $1\nui_print" >> $OUTFD; }
+show_progress() { echo "progress $1 $2" > $OUTFD; }
+set_progress() { echo "set_progress $1" > $OUTFD; }
+print() { $BOOTMODE && echo "$1" || echo -e "ui_print $1\nui_print" >> $OUTFD; }
+getp() { grep "^$1" "$2" | head -n1 | cut -d = -f 2; }
+del() { rm -rf "$1"; }
+set_perm() {
+  uid=$1; gid=$2; mod=$3;
+  shift 3;
+  chown $uid:$gid "$@" || chown $uid.$gid "$@";
+  chmod $mod "$@";
+}
+set_perm_recursive() {
+  uid=$1; gid=$2; dmod=$3; fmod=$4;
+  shift 4;
+  until [ ! "$1" ]; do
+    chown -R $uid:$gid "$1" || chown -R $uid.$gid "$1";
+    find "$1" -type d -exec chmod $dmod {} +;
+    find "$1" -type f -exec chmod $fmod {} +;
+    shift;
+  done;
+}
+abort() {
+	print "$1"
+	exit 1
+	}
+	
+#(dont change)
+print " ";
+print "   Nasgor Kernel Installer by wahyu6070";
+print " "
+show_progress 1.34 0;
+
+print " ";
+print "- Mounting";
+mount -o ro /system;
+mount /data;
+mount /cache;
+test -f /system/system/build.prop && root=/system;
+set_progress 0.4;
+
+mkdir -p /tmp/nki;
+cd /tmp/nki;
+print "- Extracting ZIP File"
+unzip -o "$ZIPFILE" >&2
+module=./module.prop
+name=`getp name $module`
+version=`getp version $module`
+device=`getp device $module`
+date=`getp date $module`
+author=`getp author $module`
+block=`getp block $module`
+set_progress 0.5;
+
+#load script
+set_perm 0 0 0777 install.sh;
+set_perm_recursive 0 0 0755 0755 bin;
+[ -f ./install.sh ] && . ./install.sh;
+
+sdk=$(getp ro.build.version.sdk /system/build.prop)
+minsdk=$(getp minsdk $module)
+[ $sdk -lt $minsdk ] && abort "- Your Android Version Not Support !!!"
+
+print "- Installing Kernel"
+for i in kernel zImage zImage-dtb Image.lzma-dtb Image.xz-dtb Image.gz-dtb; do
+    if [ -f $i ]; then
+      kernel=$i;
+      break;
+    fi;
+    done;
+    
+magiskboot=./bin/magiskboot
+if [ -f boot.img ]; then
+$magiskboot unpack boot.img
+del kernel_dtb
+del *ramdisk*
+kernel=kernel
+fi
+set_progress 0.4;
+
+if [ $kernel != "boot.img" ]; then
+datanki=/data/nki
+mv $kernel nasgor-kernel
+del $datanki
+mkdir -p $datanki
+dd if=$block of=$datanki/boot.img
+$magiskboot unpack $datanki/boot.img
+cat $datanki/boot.img > $datanki/boot.backub.img
+del kernel
+else
+abort "- Image Kernel Not Found"
+fi
+set_progress 0.4;
+
+if [ -f nasgor-kernel ]; then
+mv nasgor-kernel kernel
+$magiskboot repack $datanki/boot.img
+fi
+[ -f new-boot.img ] && dd if=new-boot.img of=$block
+del $datanki/boot.img
+set_progress 0.4;
+
+if [ -d /data/adb/modules ]; then
+print "- Magisk Detected";
+print "- Building $name in magisk module";
+modnki=/data/adb/modules/nki;
+mkdir -p $modnki;
+cp -pf $module $modnki;
+touch $modnki/uninstall.sh;
+printf "dd if=/data/nki/boot.backub.img of=$block" > $modnki/uninstall.sh
+sed -i "$ a rm -rf /data/nki" $modnki/uninstall.sh
+set_perm_recursive 0 0 0755 0755 $nki;
+fi
+print "- Unmounting";
+umount /system;
+umount /data;
+umount /cache;
+set_progress 1.1;
+cd /;
+del /tmp/nki;
+print "- Installing $name done";
+set_progress 0.3;
+exit 0;
+
