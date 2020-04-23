@@ -41,10 +41,7 @@ set_perm_recursive() {
     shift;
   done;
 }
-abort() {
-	print "$1"
-	exit 1
-	}
+abort() { print "$1"; exit 1; }
 	
 #(dont change)
 print " ";
@@ -90,7 +87,7 @@ for i in kernel zImage zImage-dtb Image.lzma-dtb Image.xz-dtb Image.gz-dtb; do
     fi;
     done;
     
-magiskboot=./bin/magiskboot
+[ -f bin/magiskboot ] && magiskboot=./bin/magiskboot || abort "- magiskboot not found"
 if [ -f boot.img ]; then
 $magiskboot unpack boot.img
 del kernel_dtb
@@ -99,7 +96,8 @@ kernel=kernel
 fi
 set_progress 0.4;
 
-if [ $kernel != "boot.img" ]; then
+[ ! $kernel ] && abort "- Kernel or boot.img not found"
+if [ ! -f boot.img ]; then
 datanki=/data/nki
 mv $kernel nasgor-kernel
 del $datanki
@@ -130,6 +128,7 @@ cp -pf $module $modnki;
 touch $modnki/uninstall.sh;
 printf "dd if=/data/nki/boot.backub.img of=$block" > $modnki/uninstall.sh
 sed -i "$ a rm -rf /data/nki" $modnki/uninstall.sh
+sed -i "$ a reboot" $modnki/uninstall.sh
 set_perm_recursive 0 0 0755 0755 $nki;
 fi
 print "- Unmounting";
