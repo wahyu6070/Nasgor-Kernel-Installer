@@ -11,5 +11,3 @@ print " Version     : $version"
 print " Developer   : $author"
 print " "
 
-chmod 777 $BASE/xz
-$BASE/xz -d $BASE/kernel.xz
