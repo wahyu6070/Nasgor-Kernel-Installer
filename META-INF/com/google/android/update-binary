@@ -1,43 +1,48 @@
 #!/sbin/sh
 # Nasgor Kernel Installer 1.0
-# by wahyu6070 (dont change)
+# Since 01/10/2019 -20/07/2020
+# By wahyu6070 (dont change)
 
 OUTFD=/proc/self/fd/$2;
 ZIPFILE="$3";
 
 ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true || BOOTMODE=false;
 $BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
-test $BOOTMODE && OUTFD=/proc/self/fd/0;
+$BOOTMODE && OUTFD=/proc/self/fd/0;
 
 ui_print() { $BOOTMODE && echo "$1" || echo -e "ui_print $1\nui_print" >> $OUTFD; }
 show_progress() { echo "progress $1 $2" > $OUTFD; }
 set_progress() { echo "set_progress $1" > $OUTFD; }
 print() { $BOOTMODE && echo "$1" || echo -e "ui_print $1\nui_print" >> $OUTFD; }
 getp() { grep "^$1" "$2" | head -n1 | cut -d = -f 2; }
-del() { rm -rf "$1"; }
+del() { rm -rf "$@"; }
+cdir() { mkdir -p "$@"; }
 set_perm() {
   chmod $3 $4
   chown $1:$2 $4
 }
 
-abort() { print "$1"; exit 1; }
+abort() { print " ";print "!!! $1"; print " "; exit 1; }
 	
 #(dont change)
 print " ";
-print "   Nasgor Kernel Installer by wahyu6070";
+print "   Nasgor Kernel Installer";
 print " "
 show_progress 1.34 0;
 
 print " ";
 print "- Mounting";
-mount -o ro /system;
+mount -o ro /system
 mount /data;
 mount /cache;
 test -f /system/system/build.prop && root=/system;
 set_progress 0.4;
 
-mkdir -p /tmp/nki;
-cd /tmp/nki;
+TMP=/tmp/nki
+cdir $TMP
+cd $TMP;
+NKI="$(pwd)"
+BASE="$(pwd)"
 print "- Extracting ZIP File"
 unzip -o "$ZIPFILE" >&2
 module=./module.prop
@@ -50,24 +55,30 @@ block=`getp block $module`
 set_progress 0.5;
 
 #load script
-set_perm 0 0 0777 install.sh;
-set_perm 0 0 0777 ./bin/magiskboot;
+set_perm 0 0 0775 install.sh;
+set_perm 0 0 0775 ./bin/magiskboot;
+set_perm 0 0 0775 ./bin/magiskinit;
+if [ -f banner ]; then
+while IFS='' read -r readbanner || [[ -n "$readbanner" ]]; do
+   print "$readbanner";
+   done < banner;
+print " ";
+fi
 [ -f ./install.sh ] && . ./install.sh;
 
 sdk=$(getp ro.build.version.sdk /system/build.prop)
 minsdk=$(getp minsdk $module)
-[ $sdk -lt $minsdk ] && abort "- Your Android Version Not Support !!!"
+[ $sdk -lt $minsdk ] && abort "Your Android Version Not Support"
 
 print "- Installing Kernel"
 for i in kernel zImage zImage-dtb Image.lzma-dtb Image.xz-dtb Image.gz-dtb; do
     if [ -f $i ]; then
       kernel=$i;
-      magiskpatch=true
       break;
     fi;
     done;
     
-[ -f bin/magiskboot ] && magiskboot=./bin/magiskboot || abort "- magiskboot not found"
+[ -f bin/magiskboot ] && magiskboot=./bin/magiskboot || abort "Magiskboot not found"
 if [ -f boot.img ]; then
 $magiskboot unpack boot.img
 del kernel_dtb
@@ -80,27 +91,44 @@ if [ -f $kernel ]; then
 datanki=/data/nki
 mv $kernel nasgor-kernel
 del $datanki
-mkdir -p $datanki
-dd if=$block of=$datanki/boot.img
-$magiskboot unpack $datanki/boot.img
-cat $datanki/boot.img > $datanki/boot.backub.img
+cdir $datanki
+dd if=$block of=$datanki/boot.backub.img
+$magiskboot unpack $datanki/boot.backub.img
 del kernel
 else
-abort "- Kernel or boot.img not found"
+abort "Kernel or boot.img not found"
 fi
 set_progress 0.4;
 
 if [ -f nasgor-kernel ]; then
-mv nasgor-kernel kernel
-[ $magiskpatch ] && print "patching magisk" && $magiskboot hexpatch kernel 736B69705F696E697472616D667300 77616E745F696E697472616D667300
-$magiskboot repack $datanki/boot.img
+mv -f nasgor-kernel kernel
 fi
-[ -f new-boot.img ] && dd if=new-boot.img of=$block
+$magiskboot repack $datanki/boot.backub.img 2>/dev/null || abort"Failed repackimg"
+
+magisk=/data/adb/magisk
+if [ -f $magisk/magisk ]; then
+print "- Magisk detected"
+print "- Installing Magisk"
+mv new-boot.img boot-ori.img
+  for Z in magiskboot magisk busybox magiskinit magiskboot boot_patch.sh util_functions.sh chromeos; do
+        if [ -f $magisk/$Z ] || [ -d $magisk/$Z ]; then
+          cp -af $magisk/$Z .
+          chmod 775 $Z
+        fi
+  done
+sh boot_patch.sh boot-ori.img >/dev/null
+fi
+
+if [ ! -f new-boot.img ]; then
+print "- Failed installing magisk !!! please install manually"
+mv -f boot-ori.img new-boot.img
+fi
+
+[ -f new-boot.img ] && dd if=new-boot.img of=$block || abort "failed installing new-boot.img"
 del $datanki/boot.img
 set_progress 0.4;
 
 if [ -d /data/adb/modules ]; then
-print "- Magisk Detected";
 print "- Building $name in magisk module";
 modnki=/data/adb/modules_update/nki;
 mkdir -p $modnki;
@@ -112,7 +140,7 @@ touch $modnki/uninstall.sh;
 printf "dd if=/data/nki/boot.backub.img of=$block" > $modnki/uninstall.sh
 sed -i "$ a rm -rf /data/nki" $modnki/uninstall.sh
 sed -i "$ a reboot" $modnki/uninstall.sh
-set_perm_recursive 0 0 0755 0755 $nki;
+set_perm_recursive 0 0 0755 0755 $modnki/uninstall.sh;
 fi
 print "- Unmounting";
 umount /system;
@@ -120,8 +148,8 @@ umount /data;
 umount /cache;
 set_progress 1.1;
 cd /;
-del /tmp/nki;
-print "- Installing $name done";
-set_progress 0.3;
+del $NKI;
+print "- Done";
+set_progress 0.2;
 exit 0;
 
